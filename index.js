@@ -53,6 +53,7 @@ app.use(
    
 
       const userCollection = client.db("patte").collection("users");
+      const petCollection = client.db("patte").collection("pet");
 
       app.post('/users', async (req, res) => {
         const user = req.body;
@@ -66,6 +67,11 @@ app.use(
         res.send(result);
       });
 
+
+      app.get('/pet',async(req,res)=>{
+        const result = await petCollection.find().toArray()
+        res.send(result)
+      })
 
 
 
