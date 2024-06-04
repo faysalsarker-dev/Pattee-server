@@ -33,7 +33,7 @@ const verifyToken = (req, res, next) => {
 };
 
 const uri =
-  "mongodb+srv://12agt:RbbpYFL4xtaBjrgd@cluster0.3liiwir.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
+  `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.3liiwir.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
@@ -48,7 +48,7 @@ async function run() {
   try {
     const userCollection = client.db("patte").collection("users");
     const petCollection = client.db("patte").collection("pet");
-    const adoptCollection = client.db("patte").collection("adopt");
+    const adoptionCollection = client.db("patte").collection("adopted");
 
     app.post("/users", async (req, res) => {
       const user = req.body;
@@ -69,36 +69,58 @@ async function run() {
       const search = req.query.search;
       const sort = req.query.sort;
 
-      const query = { adopted:false };
+      const query = { adopted: false };
       if (search) {
         query.name = { $regex: search, $options: "i" };
       }
-      if (sort) {
-        query.category = { category: sort } ;
-      }
-
-      let option = {};
-
+      // console.log(sort);
+      // let option ={}
       // if (sort) {
-      //   option = { sort: { category: sort } };
+      //   query.category = { category: sort } ;
       // }
-      const result = await petCollection.find(query,option).toArray();
+
+      const result = await petCollection
+        .find(query)
+        .sort({ date: -1 })
+        .toArray();
+      res.send(result);
+    });
+
+    app.get("/petDetails/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await petCollection.findOne(query);
+      res.send(result);
+    });
+
+    app.post("/add-pet", async (req, res) => {
+      const data = req.body;
+      const result = await petCollection.insertOne(data);
+      res.send(result);
+    });
+
+    app.post("/adopted", async (req, res) => {
+      const data = req.body;
+      const result = await adoptionCollection.insertOne(data);
+      res.send(result);
+    });
+
+    app.patch("/pet-adopt/:id", async (req, res) => {
+      const id = req.params.id;
+      const data = req.body;
+      const query = { _id: new ObjectId(id) };
+      const options = { upsert: true };
+      console.log(data);
+      const updateDoc = {
+        $set: {
+          ...data,
+        },
+      };
+      const result = await petCollection.updateOne(query, updateDoc, options);
       res.send(result);
     });
 
 
-
-
-
-
-
-  
-    app.post("/add-pet", async (req, res) => {
-      const data = req.body;
-      console.log('INSIDE DATA BASE ' ,data);
-      const result = await petCollection.insertOne(data);
-      res.send(result)
-    });
 
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!"
