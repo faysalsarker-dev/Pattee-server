@@ -32,8 +32,7 @@ const verifyToken = (req, res, next) => {
   });
 };
 
-const uri =
-  `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.3liiwir.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
+const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.3liiwir.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
@@ -65,26 +64,61 @@ async function run() {
       res.send(result);
     });
 
+ 
+
+    app.get('/category/:cetegory',async(req,res)=>{
+      const category = req.params.cetegory;
+      const query = {
+        $and: [
+          { category: category },
+          { adopted: false }
+        ]
+      };
+      console.log(query);
+      const result = await petCollection.find(query).sort({ date: -1 }).toArray()
+      res.send(result)
+      console.log(result);
+    })
+
+
+
+
     app.get("/pet", async (req, res) => {
       const search = req.query.search;
-      const sort = req.query.sort;
-
+      const category = req.query.category; 
+      const page = parseInt(req.query.page) || 1;
+    
       const query = { adopted: false };
+    
       if (search) {
         query.name = { $regex: search, $options: "i" };
       }
-      // console.log(sort);
-      // let option ={}
-      // if (sort) {
-      //   query.category = { category: sort } ;
-      // }
 
-      const result = await petCollection
+      if (category) {
+        query.category = category;
+      }
+  
+    
+      const petsPerPage = 3;
+      const totalPets = await petCollection.countDocuments(query);
+      const totalPages = Math.ceil(totalPets / petsPerPage);
+    
+      const pets = await petCollection
         .find(query)
-        .sort({ date: -1 })
+        .sort({ date: -1 }) 
+        .skip((page - 1) * petsPerPage)
+        .limit(petsPerPage)
         .toArray();
-      res.send(result);
+    
+      res.send({
+        pets,
+        hasNext: page < totalPages,
+        nextPage: page < totalPages ? page + 1 : null,
+      });
+      
     });
+    
+    
 
     app.get("/petDetails/:id", async (req, res) => {
       const id = req.params.id;
@@ -119,6 +153,23 @@ async function run() {
       const result = await petCollection.updateOne(query, updateDoc, options);
       res.send(result);
     });
+
+    app.get("/my-pets/:email", async (req, res) => {
+      const email = req.params.email;
+      const query = { email: email };
+      const result = await petCollection.find(query).toArray();
+      res.send(result);
+    });
+    app.delete('/my-pets-delete/:id',async(req,res)=>{
+      const id = req.params.id;
+      const query = {_id:new ObjectId(id)}
+      const result = await petCollection.deleteOne(query);
+      res.send(result)
+    })
+
+
+
+
 
 
 
