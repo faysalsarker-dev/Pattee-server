@@ -48,6 +48,7 @@ async function run() {
     const userCollection = client.db("patte").collection("users");
     const petCollection = client.db("patte").collection("pet");
     const adoptionCollection = client.db("patte").collection("adopted");
+    const campaignCollection = client.db("patte").collection("campaign");
 
     app.post("/users", async (req, res) => {
       const user = req.body;
@@ -64,7 +65,48 @@ async function run() {
       res.send(result);
     });
 
+
+
+
+    app.get('/check-admin/:email',async(req,res)=>{
+      const email = req.params.email;
+      const query= {email:email};
+      const result = await userCollection.findOne(query);
+      res.send(result);
+
+    })
+
+
+    app.get('/all-users',async(req,res)=>{
+      const result = await userCollection.find().toArray();
+      res.send(result)
+    })
+
+    app.patch('/make-Admin/:email',async(req,res)=>{
+
+      const email = req.params.email;
+      const query = {email:email};
+      const options = { upsert: true };
+      const data = req.body
+      const updateDoc = {
+        $set: {
+          ...data,
+        },
+      };
+      const result = await userCollection.updateOne(query,updateDoc,options);
+      res.send(result)
+    })
  
+
+    app.get('/all-pets',async(req,res)=>{
+      const result =  await petCollection.find().toArray();
+      res.send(result) 
+    })
+
+    app.get('/all-donation',async(req,res)=>{
+      const result = await campaignCollection.find().toArray()
+      res.send(result);
+    })
 
     app.get('/category/:cetegory',async(req,res)=>{
       const category = req.params.cetegory;
@@ -77,7 +119,7 @@ async function run() {
       console.log(query);
       const result = await petCollection.find(query).sort({ date: -1 }).toArray()
       res.send(result)
-      console.log(result);
+      
     })
 
 
@@ -118,6 +160,32 @@ async function run() {
       
     });
     
+
+    app.get('/all-donation-campaigns',async(req,res)=>{
+      const page = parseInt(req.query.page) || 1;
+      const petsPerPage = 3;
+      const totalPets = await campaignCollection.countDocuments();
+      const totalPages = Math.ceil(totalPets / petsPerPage)
+      const result = await campaignCollection
+      .find()
+      .sort({ date: -1 }) 
+      .skip((page - 1) * petsPerPage)
+      .limit(petsPerPage)
+      .toArray();
+  console.log(result);
+    res.send({
+      result,
+      hasNext: page < totalPages,
+      nextPage: page < totalPages ? page + 1 : null,
+    });
+    })
+    app.get('/campaigns-details/:id',async(req,res)=>{
+      const id = req.params.id;
+      const query = {_id: new ObjectId(id)};
+      const result =await campaignCollection.findOne(query)
+      res.send(result);
+    
+    })
     
 
     app.get("/petDetails/:id", async (req, res) => {
@@ -125,6 +193,7 @@ async function run() {
       const query = { _id: new ObjectId(id) };
       const result = await petCollection.findOne(query);
       res.send(result);
+      
     });
 
     app.post("/add-pet", async (req, res) => {
@@ -154,12 +223,46 @@ async function run() {
       res.send(result);
     });
 
+
+
     app.get("/my-pets/:email", async (req, res) => {
       const email = req.params.email;
       const query = { email: email };
-      const result = await petCollection.find(query).toArray();
+      const totalData = await petCollection.countDocuments(query)
+    
+      const result = await petCollection.find(query).limit(10).toArray();
       res.send(result);
     });
+
+app.get('/My-donation-campaigns/:email',async(req,res)=>{
+  const email = req.params.email;
+  const query = {email:email}
+  const result = await campaignCollection.find(query).toArray()
+  res.send(result)
+})
+
+
+
+app.patch('/update-cam/:id',async(req,res)=>{
+  const id = req.params.id;
+  console.log(id);
+  const data = req.body;
+  const query = {_id:new ObjectId(id)};
+  const options = { upsert: true };
+  console.log(data);
+  const updateDoc = {
+    $set: {
+      ...data,
+    },
+  };
+  console.log('form update cam',body);
+  const result = await campaignCollection.updateOne(query,updateDoc,options)
+  res.send(result)
+
+  
+})
+
+
     app.delete('/my-pets-delete/:id',async(req,res)=>{
       const id = req.params.id;
       const query = {_id:new ObjectId(id)}
@@ -169,8 +272,19 @@ async function run() {
 
 
 
+app.post('/campaign',async(req,res)=>{
+  const data = req.body;
+  const result = await campaignCollection.insertOne(data);
+  res.send(result)
 
+})
 
+app.delete('/delete-campaign/:id',async(req,res)=>{
+const id = req.params.id;
+const query = {_id:new ObjectId(id)};
+const result = await campaignCollection.deleteOne(query)
+res.send(result)
+})
 
 
     console.log(
