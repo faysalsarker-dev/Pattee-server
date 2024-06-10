@@ -4,13 +4,15 @@ const jwt = require("jsonwebtoken");
 const cookieParser = require("cookie-parser");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 require("dotenv").config();
+const stripe = require("stripe")(process.env.DB_STRIPE);
+
 const app = express();
 const port = process.env.PORT || 5000;
 
 // midleware
 app.use(
   cors({
-    origin: ["http://localhost:5173"],
+    origin: ["http://localhost:5173","https://pattee-29048.web.app/"],
     credentials: true,
   })
 );
@@ -49,6 +51,7 @@ async function run() {
     const petCollection = client.db("patte").collection("pet");
     const adoptionCollection = client.db("patte").collection("adopted");
     const campaignCollection = client.db("patte").collection("campaign");
+    const donationCollection = client.db("patte").collection("donation");
 
     app.post("/jwt", (req, res) => {
       const user = req.body;
@@ -67,63 +70,27 @@ async function run() {
       res.clearCookie("token", { maxAge: 0 }).send({ success: true });
     });
 
-    app.post("/users", async (req, res) => {
-      const user = req.body;
-      const query = { email: user.email };
-      console.log(user);
-      const existingUser = await userCollection.findOne(query);
-      if (existingUser) {
-        return (
-          res.send({ message: "user already exists", insertedId: null }),
-          console.log("agin")
-        );
-      }
-      const result = await userCollection.insertOne(user);
-      res.send(result);
-    });
-
-    app.get("/check-admin/:email", async (req, res) => {
-      const email = req.params.email;
-      const query = { email: email };
+    // Veryfy admin
+    const verifyAdmin = async (req, res, next) => {
+      const user = req.user;
+      const query = { email: user?.email };
       const result = await userCollection.findOne(query);
-      res.send(result);
-    });
 
-    app.get("/all-users", async (req, res) => {
-      const result = await userCollection.find().toArray();
-      res.send(result);
-    });
+      if (!result || result?.role !== "admin")
+        
 
-    app.patch("/make-Admin/:email", async (req, res) => {
-      const email = req.params.email;
-      const query = { email: email };
-      const options = { upsert: true };
-      const data = req.body;
-      const updateDoc = {
-        $set: {
-          ...data,
-        },
-      };
-      const result = await userCollection.updateOne(query, updateDoc, options);
-      res.send(result);
-    });
 
-    app.get("/all-pets", async (req, res) => {
-      const result = await petCollection.find().toArray();
-      res.send(result);
-    });
+        return res.status(401).send({ message: "unauthorized access!!" });
 
-    app.get("/all-donation", async (req, res) => {
-      const result = await campaignCollection.find().toArray();
-      res.send(result);
-    });
+      next();
+    };
 
     app.get("/category/:cetegory", async (req, res) => {
       const category = req.params.cetegory;
       const query = {
         $and: [{ category: category }, { adopted: false }],
       };
-      console.log(query);
+
       const result = await petCollection
         .find(query)
         .sort({ date: -1 })
@@ -164,6 +131,8 @@ async function run() {
       });
     });
 
+    // ----------------------local api---------------
+
     app.get("/all-donation-campaigns", async (req, res) => {
       const page = parseInt(req.query.page) || 1;
       const petsPerPage = 3;
@@ -175,13 +144,14 @@ async function run() {
         .skip((page - 1) * petsPerPage)
         .limit(petsPerPage)
         .toArray();
-      console.log(result);
+
       res.send({
         result,
         hasNext: page < totalPages,
         nextPage: page < totalPages ? page + 1 : null,
       });
     });
+
     app.get("/campaigns-details/:id", async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
@@ -195,6 +165,93 @@ async function run() {
       const result = await petCollection.findOne(query);
       res.send(result);
     });
+
+    app.post("/create-payment-intent", verifyToken, async (req, res) => {
+      const price = req.body.price;
+
+      const priceInCent = parseFloat(price) * 100;
+
+      if (!price || priceInCent < 1)
+        return res.status(400).send({ error: "Invalid price" });
+
+      try {
+        const { client_secret } = await stripe.paymentIntents.create({
+          amount: priceInCent,
+          currency: "usd",
+          automatic_payment_methods: {
+            enabled: true,
+          },
+        });
+
+        res.send({ clientSecret: client_secret });
+      } catch (error) {
+        res.status(500).send({ error: error.message });
+      }
+    });
+
+    // ---------------------create user api-----------------
+
+    app.post("/users", async (req, res) => {
+      const user = req.body;
+      const query = { email: user.email };
+
+      const existingUser = await userCollection.findOne(query);
+      if (existingUser) {
+        return res.send({ message: "user already exists", insertedId: null });
+      }
+      const result = await userCollection.insertOne(user);
+      res.send(result);
+    });
+    // -------------------admin check api------------
+
+    app.get("/check-admin/:email",  async (req, res) => {
+      const email = req.params.email;
+      const query = { email: email };
+      const result = await userCollection.findOne(query);
+      res.send(result);
+    });
+
+    // ----------------------admin special api----------------
+
+    app.get("/all-users", verifyToken, verifyAdmin,async (req, res) => {
+      const result = await userCollection.find().toArray();
+      res.send(result);
+    });
+
+    app.patch(
+      "/make-Admin/:email",
+      verifyAdmin,
+      verifyToken,
+      async (req, res) => {
+        const email = req.params.email;
+        const query = { email: email };
+        const options = { upsert: true };
+        const data = req.body;
+        const updateDoc = {
+          $set: {
+            ...data,
+          },
+        };
+        const result = await userCollection.updateOne(
+          query,
+          updateDoc,
+          options
+        );
+        res.send(result);
+      }
+    );
+
+    app.get("/all-pets", verifyToken, verifyAdmin ,async (req, res) => {
+      const result = await petCollection.find().toArray();
+      res.send(result);
+    });
+
+    app.get("/all-donation", verifyToken, verifyAdmin,async (req, res) => {
+      const result = await campaignCollection.find().toArray();
+      res.send(result);
+    });
+
+    // --------------pets api------------------
 
     app.post("/add-pet", async (req, res) => {
       const data = req.body;
@@ -213,7 +270,7 @@ async function run() {
       const data = req.body;
       const query = { _id: new ObjectId(id) };
       const options = { upsert: true };
-      console.log(data);
+
       const updateDoc = {
         $set: {
           ...data,
@@ -223,11 +280,50 @@ async function run() {
       res.send(result);
     });
 
-    app.get("/my-total-pet/:email", async (req, res) => {
+    app.patch("/my-pets-req-handle/:id", async (req, res) => {
+      const id = req.params.id;
+      const data = req.body;
+      const query = { _id: new ObjectId(id) };
+      const options = { upsert: true };
+
+      const updateDoc = {
+        $set: {
+          ...data,
+        },
+      };
+      const result = await adoptionCollection.updateOne(
+        query,
+        updateDoc,
+        options
+      );
+      res.send(result);
+    });
+
+    app.get("/my-total-pet/:email", verifyToken, async (req, res) => {
       const email = req.params.email;
       const query = { email: email };
       const count = await petCollection.countDocuments(query);
       res.send({ count });
+    });
+
+    app.get("/my-pet-adoptetion/:email", verifyToken, async (req, res) => {
+      const email = req.params.email;
+      const query = { donetor_email: email };
+      const count = await adoptionCollection.countDocuments(query);
+      res.send({ count });
+    });
+
+    app.get("/my-pets-req/:email", verifyToken, async (req, res) => {
+      const email = req.params.email;
+      const query = { donetor_email: email };
+      const page = parseInt(req.query.page);
+      const size = parseInt(req.query.size);
+      const result = await adoptionCollection
+        .find(query)
+        .skip((page - 1) * size)
+        .limit(size)
+        .toArray();
+      res.send(result);
     });
 
     app.get("/my-pets/:email", verifyToken, async (req, res) => {
@@ -255,31 +351,51 @@ async function run() {
       }
     });
 
-    app.get("/My-donation-campaigns/:email", async (req, res) => {
+    app.delete("/my-pets-delete/:id", verifyToken, async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await petCollection.deleteOne(query);
+      res.send(result);
+    });
+
+    // ---------------------donation api-----------------------
+
+    app.post("/donation", verifyToken, async (req, res) => {
+      const data = req.body;
+      const result = await donationCollection.insertOne(data);
+      res.send(result);
+    });
+    app.get("/donation-info/:pet_id", verifyToken, async (req, res) => {
+      const pet_id = req.params.pet_id;
+      const query = { pet_id: pet_id };
+      const result = await donationCollection.find(query).toArray();
+      res.send(result);
+    });
+
+    app.get("/My-donation-campaigns/:email", verifyToken, async (req, res) => {
       const email = req.params.email;
       const query = { email: email };
       const page = parseInt(req.query.page);
       const size = parseInt(req.query.size);
-      const result = await campaignCollection.find(query).skip((page - 1) * size).limit(size).toArray();
+      const result = await campaignCollection
+        .find(query)
+        .skip((page - 1) * size)
+        .limit(size)
+        .toArray();
       res.send(result);
     });
 
-
-    app.get("/My-campaigns-count/:email", async (req, res) => {
+    app.get("/My-campaigns-count/:email", verifyToken, async (req, res) => {
       const email = req.params.email;
       const query = { email: email };
       const count = await campaignCollection.countDocuments(query);
       res.send({ count });
     });
 
-    app.patch("/update-cam/:id", async (req, res) => {
+    app.patch("/update-cam/:id", verifyToken, async (req, res) => {
       try {
         const id = req.params.id;
-        console.log(`Received ID: ${id}`);
-
         const data = req.body;
-        console.log("Received data:", data);
-
         const query = { _id: new ObjectId(id) };
         const options = { upsert: true };
 
@@ -295,7 +411,6 @@ async function run() {
           options
         );
 
-        console.log("Update result:", result);
         res.send(result);
       } catch (error) {
         console.error("Error updating campaign:", error);
@@ -305,20 +420,13 @@ async function run() {
       }
     });
 
-    app.delete("/my-pets-delete/:id", async (req, res) => {
-      const id = req.params.id;
-      const query = { _id: new ObjectId(id) };
-      const result = await petCollection.deleteOne(query);
-      res.send(result);
-    });
-
     app.post("/campaign", async (req, res) => {
       const data = req.body;
       const result = await campaignCollection.insertOne(data);
       res.send(result);
     });
 
-    app.delete("/delete-campaign/:id", async (req, res) => {
+    app.delete("/delete-campaign/:id", verifyToken, async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const result = await campaignCollection.deleteOne(query);
